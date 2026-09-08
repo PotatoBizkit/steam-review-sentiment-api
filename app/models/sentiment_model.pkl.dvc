@@ -1,0 +1,5 @@
+outs:
+- md5: a4c73c597ceeca8d16fb061695a227c5
+  size: 80847
+  hash: md5
+  path: sentiment_model.pkl

@@ -4,6 +4,9 @@ from app.schemas.sentiment import SentimentOutput, ReviewInput
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.predictions import Prediction
+import json
+import hashlib
+from app.redis_client import redis_client
 
 def get_db():
     db = SessionLocal()
@@ -17,15 +20,17 @@ vectorizer = joblib.load("app/models/tfidf_vectorizer.pkl")
 
 @router.post("/predict", response_model=SentimentOutput)
 def predict_sentiment(data: ReviewInput, db: Session = Depends(get_db)):
+    cache_key="sentiment:" + hashlib.sha256(data.review_text.encode()).hexdigest()
+    cached_result=redis_client.get(cache_key)
+    if cached_result:
+        return SentimentOutput(**json.loads(cached_result))
     txt_tfidf = vectorizer.transform([data.review_text])
     pred = model.predict(txt_tfidf)[0]
     prob = model.predict_proba(txt_tfidf)[0]
     confidence = float(max(prob))
+    result=SentimentOutput(review_text = data.review_text, recommendation = bool(pred), confidence = confidence)
+    redis_client.setex(cache_key, 3600, result.model_dump_json())
     db_entry = Prediction(review_text=data.review_text, recommendation=bool(pred), confidence=confidence)
     db.add(db_entry)
     db.commit()
-    return SentimentOutput(
-        review_text = data.review_text,
-        recommendation = bool(pred),
-        confidence = confidence
-    )
+    return result
